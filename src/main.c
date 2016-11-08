@@ -17,6 +17,7 @@
 #include "softdevice_handler.h"
 #include "device_manager.h"
 #include "pstorage.h"
+#include "pstorage_platform.h"
 
 #include "boards.h"
 #include "bsp.h"
