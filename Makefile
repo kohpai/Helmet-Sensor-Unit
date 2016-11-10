@@ -63,6 +63,8 @@ $(abspath ../../../components/drivers_nrf/clock/nrf_drv_clock.c) \
 $(abspath ../../bsp/bsp.c) \
 $(abspath src/main.c) \
 $(abspath src/mpu9250.c) \
+$(abspath src/sensors.c) \
+$(abspath src/bluetooth.c) \
 $(abspath src/helmet_sensor_unit_service.c) \
 $(abspath ../../../components/ble/common/ble_advdata.c) \
 $(abspath ../../../components/ble/ble_advertising/ble_advertising.c) \
