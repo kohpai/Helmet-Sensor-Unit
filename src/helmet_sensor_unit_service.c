@@ -37,10 +37,16 @@ static uint8_t init_characteristics(ble_hcus_t * p_hcus)
 {
     uint32_t err_code;
     uint8_t value[6] = {0};
-    ble_uuid_t acc_char_uuid, gyro_char_uuid, mag_char_uuid, hrm_char_uuid;
+    ble_uuid_t 
+        err_char_uuid,
+        acc_char_uuid,
+        gyro_char_uuid,
+        mag_char_uuid,
+        hrm_char_uuid;
     ble_gatts_char_md_t char_md;
     ble_gatts_attr_md_t attr_md;
-    ble_gatts_attr_t    acc_attr_char_value, 
+    ble_gatts_attr_t    err_attr_char_value, 
+                        acc_attr_char_value, 
                         gyro_attr_char_value, 
                         mag_attr_char_value, 
                         hrm_attr_char_value;
@@ -48,57 +54,62 @@ static uint8_t init_characteristics(ble_hcus_t * p_hcus)
 
     ble_uuid128_t base_uuid = BLE_UUID_HCU_BASE_UUID;
 
+    err_char_uuid.uuid  = BLE_UUID_ERR_CHARACTERISTIC_UUID;
     acc_char_uuid.uuid  = BLE_UUID_ACC_CHARACTERISTIC_UUID;
     gyro_char_uuid.uuid = BLE_UUID_GYRO_CHARACTERISTIC_UUID;
     mag_char_uuid.uuid  = BLE_UUID_MAG_CHARACTERISTIC_UUID;
     hrm_char_uuid.uuid  = BLE_UUID_HRM_CHARACTERISTIC_UUID;
 
-    err_code = sd_ble_uuid_vs_add(&base_uuid, &acc_char_uuid.type);
+    err_code = sd_ble_uuid_vs_add(&base_uuid, &err_char_uuid.type);
 
     if (err_code != NRF_SUCCESS)
         return 1;
 
-    err_code = sd_ble_uuid_vs_add(&base_uuid, &gyro_char_uuid.type);
+    err_code = sd_ble_uuid_vs_add(&base_uuid, &acc_char_uuid.type);
 
     if (err_code != NRF_SUCCESS)
         return 2;
 
-    err_code = sd_ble_uuid_vs_add(&base_uuid, &mag_char_uuid.type);
+    err_code = sd_ble_uuid_vs_add(&base_uuid, &gyro_char_uuid.type);
 
     if (err_code != NRF_SUCCESS)
         return 3;
-    
-    err_code = sd_ble_uuid_vs_add(&base_uuid, &hrm_char_uuid.type);
+
+    err_code = sd_ble_uuid_vs_add(&base_uuid, &mag_char_uuid.type);
 
     if (err_code != NRF_SUCCESS)
         return 4;
     
-    // OUR_JOB: Step 2.F Add read/write properties to our characteristic
+    err_code = sd_ble_uuid_vs_add(&base_uuid, &hrm_char_uuid.type);
+
+    if (err_code != NRF_SUCCESS)
+        return 5;
+    
     memset(&char_md, 0, sizeof(char_md));
     char_md.char_props.read = 1;
     char_md.char_props.write = 0;
 
-    // OUR_JOB: Step 2.B, Configure the attribute metadata
     memset(&attr_md, 0, sizeof(attr_md));  
     attr_md.vloc = BLE_GATTS_VLOC_STACK;
     attr_md.rd_auth = 1;
 
-    // OUR_JOB: Step 2.G, Set read/write security levels to our characteristic
     BLE_GAP_CONN_SEC_MODE_SET_OPEN(&attr_md.read_perm);
     BLE_GAP_CONN_SEC_MODE_SET_NO_ACCESS(&attr_md.write_perm);
     
     
-    // OUR_JOB: Step 2.C, Configure the characteristic value attribute
+    memset(&err_attr_char_value, 0, sizeof(err_attr_char_value));
     memset(&acc_attr_char_value, 0, sizeof(acc_attr_char_value));
     memset(&gyro_attr_char_value, 0, sizeof(gyro_attr_char_value));
     memset(&mag_attr_char_value, 0, sizeof(mag_attr_char_value));
     memset(&hrm_attr_char_value, 0, sizeof(hrm_attr_char_value));
 
+    err_attr_char_value.p_uuid  = &err_char_uuid;
     acc_attr_char_value.p_uuid  = &acc_char_uuid;
     gyro_attr_char_value.p_uuid = &gyro_char_uuid;
     mag_attr_char_value.p_uuid  = &mag_char_uuid;
     hrm_attr_char_value.p_uuid  = &hrm_char_uuid;
 
+    err_attr_char_value.p_attr_md = &attr_md;
     acc_attr_char_value.p_attr_md = &attr_md;
     gyro_attr_char_value.p_attr_md = &attr_md;
     mag_attr_char_value.p_attr_md = &attr_md;
@@ -108,26 +119,36 @@ static uint8_t init_characteristics(ble_hcus_t * p_hcus)
     acc_attr_char_value.max_len = 
         gyro_attr_char_value.max_len = 
         mag_attr_char_value.max_len = 6;
-    hrm_attr_char_value.max_len = 2;
+    hrm_attr_char_value.max_len = 
+        err_attr_char_value.max_len = 2;
 
     acc_attr_char_value.init_len = 
         gyro_attr_char_value.init_len = 
         mag_attr_char_value.init_len = 6;
-    hrm_attr_char_value.init_len = 2;
+    hrm_attr_char_value.init_len = 
+        err_attr_char_value.init_len = 2;
 
     acc_attr_char_value.p_value = 
         gyro_attr_char_value.p_value = 
         mag_attr_char_value.p_value = 
-        hrm_attr_char_value.p_value = value;
+        hrm_attr_char_value.p_value = 
+        err_attr_char_value.p_value = value;
 
-    // OUR_JOB: Step 2.E, Add our new characteristic to the service
+    err_code = sd_ble_gatts_characteristic_add(p_hcus->service_handle,
+            &char_md,
+            &err_attr_char_value,
+            &p_hcus->err_char_handle);
+
+    if (err_code != NRF_SUCCESS)
+        return 6;
+
     err_code = sd_ble_gatts_characteristic_add(p_hcus->service_handle,
             &char_md,
             &acc_attr_char_value,
             &p_hcus->acc_char_handle);
 
     if (err_code != NRF_SUCCESS)
-        return 5;
+        return 7;
 
     err_code = sd_ble_gatts_characteristic_add(p_hcus->service_handle,
             &char_md,
@@ -135,7 +156,7 @@ static uint8_t init_characteristics(ble_hcus_t * p_hcus)
             &p_hcus->gyro_char_handle);
 
     if (err_code != NRF_SUCCESS)
-        return 6;
+        return 8;
 
     err_code = sd_ble_gatts_characteristic_add(p_hcus->service_handle,
             &char_md,
@@ -143,7 +164,7 @@ static uint8_t init_characteristics(ble_hcus_t * p_hcus)
             &p_hcus->mag_char_handle);
 
     if (err_code != NRF_SUCCESS)
-        return 7;
+        return 9;
 
     err_code = sd_ble_gatts_characteristic_add(p_hcus->service_handle,
             &char_md,
@@ -151,7 +172,7 @@ static uint8_t init_characteristics(ble_hcus_t * p_hcus)
             &p_hcus->hrm_char_handle);
 
     if (err_code != NRF_SUCCESS)
-        return 8;
+        return 10;
 
     return 0;
 }

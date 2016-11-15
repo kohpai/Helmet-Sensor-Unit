@@ -4,7 +4,6 @@
 #include <stdio.h>
 
 #include "sdk_errors.h"
-#include "app_twi.h"
 #include "nrf_delay.h"
 #include "mpu9250.h"
 
@@ -117,7 +116,7 @@
 #define REG_MAG_ST_2            (0x09)
 
 static uint8_t buffer[10];
-extern app_twi_t m_app_twi;
+static app_twi_t *m_app_twi;
 
 static bool regRead(uint8_t regAddr)
 {
@@ -134,7 +133,7 @@ static bool regRead(uint8_t regAddr)
 
     size = sizeof(transfers) / sizeof(transfers[0]);
 
-    if ((errCode = app_twi_perform(&m_app_twi, transfers, size, NULL)) != NRF_SUCCESS) {
+    if ((errCode = app_twi_perform(m_app_twi, transfers, size, NULL)) != NRF_SUCCESS) {
 #ifdef MPU_DEBUG
         printf("TWI Perform Error: %d\n", errCode);
 #endif
@@ -159,7 +158,7 @@ static bool regWrite(uint8_t regAddr, uint8_t data)
 
     size = sizeof(transfers) / sizeof(transfers[0]);
 
-    if ((errCode = app_twi_perform(&m_app_twi, transfers, size, NULL)) != NRF_SUCCESS) {
+    if ((errCode = app_twi_perform(m_app_twi, transfers, size, NULL)) != NRF_SUCCESS) {
 #ifdef MPU_DEBUG
         printf("TWI Perform Error: %d\n", errCode);
 #endif
@@ -185,7 +184,7 @@ static bool magRegRead(uint8_t regAddr)
 
     size = sizeof(transfers) / sizeof(transfers[0]);
 
-    if ((errCode = app_twi_perform(&m_app_twi, transfers, size, NULL)) != NRF_SUCCESS) {
+    if ((errCode = app_twi_perform(m_app_twi, transfers, size, NULL)) != NRF_SUCCESS) {
 #ifdef MPU_DEBUG
         printf("MagRead Error: %d\n", errCode);
 #endif
@@ -210,7 +209,7 @@ static bool magRegWrite(uint8_t regAddr, uint8_t data)
 
     size = sizeof(transfers) / sizeof(transfers[0]);
 
-    if ((errCode = app_twi_perform(&m_app_twi, transfers, size, NULL)) != NRF_SUCCESS) {
+    if ((errCode = app_twi_perform(m_app_twi, transfers, size, NULL)) != NRF_SUCCESS) {
 #ifdef MPU_DEBUG
         printf("TWI Perform Error: %d\n", errCode);
 #endif
@@ -252,8 +251,9 @@ uint8_t enableBypass(bool enable)
     return 0;
 }
 
-uint8_t mpuInit(void)
+uint8_t mpuInit(app_twi_t *twi_ins)
 {
+    m_app_twi = twi_ins;
     /* Reset device. */
     if (!regWrite(REG_PWR_MGMT_1, MPU_RESET))
         return 1;
