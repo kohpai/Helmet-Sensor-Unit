@@ -21,44 +21,36 @@
 
 #include "sensors.h"
 #include "bluetooth.h"
+#include "error_event.h"
 
 #define IS_SRVC_CHANGED_CHARACT_PRESENT     1
 #define CENTRAL_LINK_COUNT                  0
 #define PERIPHERAL_LINK_COUNT               1
 
-/**
- * Value used as error code on stack dump,
- * can be used to identify stack location on stack unwind.
-**/
 #define DEAD_BEEF                       0xDEADBEEF
 
-/** max number of transactions that can be in the queue. */
 #define MAX_PENDING_TRANSACTIONS    5
-
-/**max number of test bytes to be used for tx and rx. */
 #define MAX_TEST_DATA_BYTES (15U)
-
-/**UART TX buffer size. */
 #define UART_TX_BUF_SIZE    256
-
-/**UART RX buffer size. */
 #define UART_RX_BUF_SIZE    1
-
-
-app_twi_t m_app_twi = APP_TWI_INSTANCE(0);
-
-static nrf_drv_adc_channel_t m_channel_config =
-    NRF_DRV_ADC_NATURAL_CHANNEL( NRF_ADC_CONFIG_INPUT_2);
 
 static uint8_t  init_uart(void);
 static uint8_t  init_adc(void);
 static uint8_t  twi_config(app_twi_t *m_app_twi);
-static void     power_manage(void);
-static void     init_timers(void);
+static uint8_t  init_timers(const app_timer_id_t *tim_ins);
+static void     power_manage(uint8_t uart_error);
+
+static nrf_drv_adc_channel_t m_channel_config =
+    NRF_DRV_ADC_NATURAL_CHANNEL( NRF_ADC_CONFIG_INPUT_2);
+static volatile uint8_t is_time = 0;
 
 int main(void)
 {
-    uint8_t ret;
+    app_twi_t m_app_twi = APP_TWI_INSTANCE(0);
+    APP_TIMER_DEF(sen_rd_tim_id);
+    uint8_t ret, uart_error;
+
+    uart_error = 0;
 
     LEDS_CONFIGURE(LEDS_MASK);
     LEDS_OFF(LEDS_MASK);
@@ -67,53 +59,70 @@ int main(void)
 
     if (ret != 0) {
         LEDS_ON(BSP_LED_2_MASK);
-        goto EXIT_PROGRAM;
+        uart_error = 1;
+        set_uart_error(1);
     }
 
     ret = init_adc();
 
     if (ret != 0) {
-        printf("Cannot initialize ADC, Error: %u\n", ret);
-        goto EXIT_PROGRAM;
+        if (!uart_error)
+            printf("Cannot initialize ADC, Error: %u\n", ret);
     }
 
     ret = twi_config(&m_app_twi);
 
     if (ret != 0) {
-        printf("Cannot initialize TWI, Error: %u\n", ret);
-        goto EXIT_PROGRAM;
+        if (!uart_error)
+            printf("Cannot initialize TWI, Error: %u\n", ret);
+
+        set_twi_error(1);
     }
 
-    ret = init_sensors();
+    ret = init_sensors(&m_app_twi, &uart_error);
 
     if (ret != 0) {
-        printf("Cannot initialize sensors, Error: %u\n", ret);
-        goto EXIT_PROGRAM;
+        if (!uart_error)
+            printf("Cannot initialize sensors, Error: %u\n", ret);
+
+        set_mpu_error(1);
     }
 
-    init_timers();
+    ret = init_timers(&sen_rd_tim_id);
 
-    ret = init_bluetooth();
+    while (ret != 0) {
+        nrf_delay_ms(3000);
 
-    if (ret != 0) {
-        printf("Cannot initialize bluetooth, Error: %u\n", ret);
-        goto EXIT_PROGRAM;
+        if (!uart_error)
+            printf("Trying to initialize timers\n");
+
+        ret = init_timers(&sen_rd_tim_id);
     }
 
-    printf("Everything's Fine!!!!\n");
+    ret = init_bluetooth(&uart_error);
+
+    while (ret != 0) {
+        nrf_delay_ms(3000);
+
+        if (!uart_error)
+            printf("Trying to initialize BLE\n");
+
+        ret = init_bluetooth(&uart_error);
+    }
+
+    if (!uart_error)
+        printf("Initialization's Done!!!!\n");
 
     while (true) {
-        /** printf("isSampleCmplt = %s\n", (isSampleCmplt ? "true":"false")); */
-        power_manage();
-    }
+        power_manage(uart_error);
 
-EXIT_PROGRAM:
-    while (true) {  }
+        if (is_time) {
+            is_time = 0;
+            sensor_routine();
+        }
+    }
 }
 
-/**
- * @brief UART error handler
- */
 static void uart_error_handle(app_uart_evt_t * p_event)
 {
     switch (p_event->evt_type) {
@@ -220,17 +229,44 @@ void assert_nrf_callback(uint16_t line_num, const uint8_t * p_file_name)
     app_error_handler(DEAD_BEEF, line_num, p_file_name);
 }
 
-static void init_timers(void)
+static void ble_read_int_handler(void * p_context)
 {
-    // Initialize timer module.
-    APP_TIMER_INIT(APP_TIMER_PRESCALER, APP_TIMER_OP_QUEUE_SIZE, false);
+    // Do something
+    /** printf("100 ms\r\n"); */
+    is_time = 1;
 }
 
-static void power_manage(void)
+static uint8_t init_timers(const app_timer_id_t *tim_ins)
+{
+    uint32_t err_code;
+    // Initialize timer module.
+    APP_TIMER_INIT(APP_TIMER_PRESCALER, APP_TIMER_OP_QUEUE_SIZE, false);
+
+    // Create timers
+    err_code = app_timer_create(tim_ins,
+                                APP_TIMER_MODE_REPEATED,
+                                ble_read_int_handler);
+
+    if (err_code != NRF_SUCCESS)
+        return 1;
+
+    err_code = app_timer_start(
+            (*tim_ins),
+            APP_TIMER_TICKS(100, APP_TIMER_PRESCALER),
+            NULL);
+
+    if (err_code != NRF_SUCCESS)
+        return 2;
+
+    return 0;
+}
+
+static void power_manage(uint8_t uart_error)
 {
     uint32_t err_code = sd_app_evt_wait();
 
     if (err_code != NRF_SUCCESS)
-        printf("power_manage: Cannot enter app event wait\n");
+        if (!uart_error)
+            printf("power_manage: Cannot enter app event wait\n");
 }
 

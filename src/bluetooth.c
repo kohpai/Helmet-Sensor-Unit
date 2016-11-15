@@ -16,6 +16,7 @@
 #include "helmet_sensor_unit_service.h"
 #include "bluetooth.h"
 #include "sensors.h"
+#include "error_event.h"
 
 #define IS_SRVC_CHANGED_CHARACT_PRESENT     1
 #define CENTRAL_LINK_COUNT                  0
@@ -42,6 +43,7 @@
 #define APP_ADV_TIMEOUT_IN_SECONDS      0
 
 static uint16_t m_conn_handle = BLE_CONN_HANDLE_INVALID;
+static uint8_t *uart_error;
 static ble_hcus_t m_our_service;
 
 static void on_ble_evt(ble_evt_t * p_ble_evt)
@@ -61,6 +63,16 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
     }
 }
 
+static void xyz_to_array(uint8_t *arr, int16_t *x, int16_t *y, int16_t *z)
+{
+    arr[0] = (uint8_t) ((*x) >> 8);
+    arr[1] = (uint8_t) (*x);
+    arr[2] = (uint8_t) ((*y) >> 8);
+    arr[3] = (uint8_t) (*y);
+    arr[4] = (uint8_t) ((*z) >> 8);
+    arr[5] = (uint8_t) (*z);
+}
+
 static void on_rw_authorize_request(ble_hcus_t *p_hcus, ble_evt_t *p_ble_evt)
 {
     ble_gatts_evt_read_t *p_evt_read =
@@ -77,16 +89,29 @@ static void on_rw_authorize_request(ble_hcus_t *p_hcus, ble_evt_t *p_ble_evt)
     rw_authorize_reply_params.params.read.gatt_status = BLE_GATT_STATUS_SUCCESS;
     rw_authorize_reply_params.params.read.update = 1;
 
-    if (p_evt_read->handle == p_hcus->acc_char_handle.value_handle) {
-        printf("on_rw_authorize_request: ACC read request\n");
+    if (p_evt_read->handle == p_hcus->err_char_handle.value_handle) {
+        uint16_t err_evt = get_err_evt_status();
+
+        if (!(*uart_error))
+            printf("on_rw_authorize_request: ERR read request\n");
+
+        value[0] = (uint8_t) (err_evt >> 8);
+        value[1] = (uint8_t) err_evt;
+
+        rw_authorize_reply_params.params.read.len = 2;
+        rw_authorize_reply_params.params.read.offset = 0;
+        rw_authorize_reply_params.params.read.p_data = value;
+    }
+    else if (p_evt_read->handle == p_hcus->acc_char_handle.value_handle) {
+        if (!(*uart_error))
+            printf("on_rw_authorize_request: ACC read request\n");
 
         if (acc_read(&x, &y, &z) == 0) {
-            value[0] = (uint8_t) (x >> 8);
-            value[1] = (uint8_t) x;
-            value[2] = (uint8_t) (y >> 8);
-            value[3] = (uint8_t) y;
-            value[4] = (uint8_t) (z >> 8);
-            value[5] = (uint8_t) z;
+            xyz_to_array(value, &x, &y, &z);
+            set_acc_error(0);
+        }
+        else {
+            set_acc_error(1);
         }
 
         rw_authorize_reply_params.params.read.len = 6;
@@ -94,15 +119,15 @@ static void on_rw_authorize_request(ble_hcus_t *p_hcus, ble_evt_t *p_ble_evt)
         rw_authorize_reply_params.params.read.p_data = value;
     }
     else if (p_evt_read->handle == p_hcus->gyro_char_handle.value_handle) {
-        printf("on_rw_authorize_request: GYRO read request\n");
+        if (!(*uart_error))
+            printf("on_rw_authorize_request: GYRO read request\n");
 
         if (gyr_read(&x, &y, &z) == 0) {
-            value[0] = (uint8_t) (x >> 8);
-            value[1] = (uint8_t) x;
-            value[2] = (uint8_t) (y >> 8);
-            value[3] = (uint8_t) y;
-            value[4] = (uint8_t) (z >> 8);
-            value[5] = (uint8_t) z;
+            xyz_to_array(value, &x, &y, &z);
+            set_gyr_error(0);
+        }
+        else {
+            set_gyr_error(1);
         }
 
         rw_authorize_reply_params.params.read.len = 6;
@@ -110,15 +135,15 @@ static void on_rw_authorize_request(ble_hcus_t *p_hcus, ble_evt_t *p_ble_evt)
         rw_authorize_reply_params.params.read.p_data = value;
     }
     else if (p_evt_read->handle == p_hcus->mag_char_handle.value_handle) {
-        printf("on_rw_authorize_request: MAG read request\n");
+        if (!(*uart_error))
+            printf("on_rw_authorize_request: MAG read request\n");
 
         if (mag_read(&x, &y, &z) == 0) {
-            value[0] = (uint8_t) (x >> 8);
-            value[1] = (uint8_t) x;
-            value[2] = (uint8_t) (y >> 8);
-            value[3] = (uint8_t) y;
-            value[4] = (uint8_t) (z >> 8);
-            value[5] = (uint8_t) z;
+            xyz_to_array(value, &x, &y, &z);
+            set_mag_error(0);
+        }
+        else {
+            set_mag_error(1);
         }
 
         rw_authorize_reply_params.params.read.len = 6;
@@ -128,11 +153,16 @@ static void on_rw_authorize_request(ble_hcus_t *p_hcus, ble_evt_t *p_ble_evt)
     else if (p_evt_read->handle == p_hcus->hrm_char_handle.value_handle) {
         uint16_t hrm;
 
-        printf("on_rw_authorize_request: HRM read request\n");
+        if (!(*uart_error))
+            printf("on_rw_authorize_request: HRM read request\n");
 
         if (hrm_read(&hrm) == 0) {
             value[0] = (uint8_t) (hrm >> 8);
             value[1] = (uint8_t) hrm;
+            set_hrm_error(0);
+        }
+        else {
+            set_hrm_error(1);
         }
 
         rw_authorize_reply_params.params.read.len = 2;
@@ -212,8 +242,9 @@ static uint32_t device_manager_evt_handler(
         ret_code_t        event_result)
 {
     if (event_result != NRF_SUCCESS) {
-        printf( "device_manager_evt_handler: "
-                "Device Manager event_result error.\n");
+        if (!(*uart_error))
+            printf( "device_manager_evt_handler: "
+                    "Device Manager event_result error.\n");
 
         /** @TODO: Add restart BLE procedure */
         /** while (1) {  }  // Do nothing else. */
@@ -311,7 +342,8 @@ static void sleep_mode_enter(void)
     err_code = sd_power_system_off();
 
     if (err_code != NRF_SUCCESS)
-        printf("sleep_mode_enter: Cannot enter sleep mode.\n");
+        if (!(*uart_error))
+            printf("sleep_mode_enter: Cannot enter sleep mode.\n");
 }
 
 static void on_adv_evt(ble_adv_evt_t ble_adv_evt)
@@ -367,7 +399,8 @@ static void on_conn_params_evt(ble_conn_params_evt_t * p_evt)
                 BLE_HCI_CONN_INTERVAL_UNACCEPTABLE);
 
         if (err_code != NRF_SUCCESS)
-            printf("on_conn_params_evt: Cannot disconnect GAP.\n");
+            if (!(*uart_error))
+                printf("on_conn_params_evt: Cannot disconnect GAP.\n");
     }
 }
 
@@ -375,7 +408,8 @@ static void conn_params_error_handler(uint32_t nrf_error)
 {
     /** APP_ERROR_HANDLER(nrf_error); */
     if (nrf_error != NRF_SUCCESS)
-        printf("conn_params_error_handler: \n");
+        if (!(*uart_error))
+            printf("conn_params_error_handler: \n");
 }
 
 static uint8_t conn_params_init(void)
@@ -414,11 +448,12 @@ static uint8_t start_ble_adv(void)
     return 0;
 }
 
-uint8_t init_bluetooth(void)
+uint8_t init_bluetooth(uint8_t *ue)
 {
     dm_application_instance_t m_app_handle;
     uint8_t ret;
 
+    uart_error = ue;
     ret = ble_stack_init();
 
     if (ret != 0)

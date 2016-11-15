@@ -12,5 +12,5 @@
     APP_TIMER_TICKS(30000, APP_TIMER_PRESCALER)
 #define MAX_CONN_PARAMS_UPDATE_COUNT    3
 
-uint8_t init_bluetooth(void);
+uint8_t init_bluetooth(uint8_t *ue);
 #endif /* ifndef BLUETOOTH_H */
