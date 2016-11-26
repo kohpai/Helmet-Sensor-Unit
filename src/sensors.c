@@ -223,13 +223,13 @@ void sensor_routine(void)
     if (xg > ACC_THR || xg < -ACC_THR ||
             yg > ACC_THR || yg < -ACC_THR ||
             zg > ACC_THR || zg < -ACC_THR) {
-        if (!(*uart_error))
-            printf("ANOMALY_OVR_ACC\n");
+        /** if (!(*uart_error)) */
+        /**     printf("ANOMALY_OVR_ACC\n"); */
         set_anomaly_event(ANOMALY_OVR_ACC);
-    } else if (roll > ANG_THR || roll < -ANG_THR || 
+    } else if (roll > ANG_THR || roll < -ANG_THR ||
             pitch > ANG_THR || pitch < -ANG_THR) {
-        if (!(*uart_error))
-            printf("ANOMALY_OVR_ANG\n");
+        /** if (!(*uart_error)) */
+        /**     printf("ANOMALY_OVR_ANG\n"); */
         set_anomaly_event(ANOMALY_OVR_ANG);
     } else {
         if (!mpuGetGyro(&x, &y, &z)) {
@@ -244,13 +244,13 @@ void sensor_routine(void)
                     yg > ANG_VEL_THR || yg < -ANG_VEL_THR ||
                     zg > ANG_VEL_THR || zg < -ANG_VEL_THR) {
 
-                if (!(*uart_error))
-                    printf("ANOMALY_OVR_ANG_VEL\n");
+                /** if (!(*uart_error)) */
+                /**     printf("ANOMALY_OVR_ANG_VEL\n"); */
                 set_anomaly_event(ANOMALY_OVR_ANG_VEL);
             }
             else {
-                if (!(*uart_error))
-                    printf("ANOMALY_FINE\n");
+                /** if (!(*uart_error)) */
+                /**     printf("ANOMALY_FINE\n"); */
                 set_anomaly_event(ANOMALY_FINE);
             }
         }

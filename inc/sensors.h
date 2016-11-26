@@ -8,7 +8,7 @@
 
 #define ADC_BUFFER_SIZE 1
 
-#define ACC_THR     3
+#define ACC_THR     2
 #define ANG_THR     45
 #define ANG_VEL_THR 600
 
