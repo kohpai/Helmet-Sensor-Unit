@@ -8,9 +8,9 @@
 
 #define ADC_BUFFER_SIZE 1
 
-#define ACC_THR     2
+#define ACC_THR     (1)
 #define ANG_THR     45
-#define ANG_VEL_THR 600
+#define ANG_VEL_THR 100
 
 uint8_t init_sensors(app_twi_t *twi_ins, uint8_t *ue);
 uint8_t hrm_read(uint16_t *hrm);

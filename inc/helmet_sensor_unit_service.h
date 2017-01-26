@@ -32,7 +32,7 @@ typedef struct
 }ble_hcus_t;
 
 void ble_hcu_service_on_ble_evt(
-        ble_hcus_t *p_hcus, 
+        ble_hcus_t *p_hcus,
         ble_evt_t *p_ble_evt,
         void (*on_write_handler) (ble_hcus_t*, ble_evt_t*),
         void (*on_read_request_handler) (ble_hcus_t*, ble_evt_t*));

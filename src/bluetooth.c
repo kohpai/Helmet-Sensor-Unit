@@ -50,10 +50,12 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
 {
     switch (p_ble_evt->header.evt_id) {
         case BLE_GAP_EVT_CONNECTED:
+            nrf_gpio_pin_set(CNTD_PIN);
             m_conn_handle = p_ble_evt->evt.gap_evt.conn_handle;
             break;
 
         case BLE_GAP_EVT_DISCONNECTED:
+            nrf_gpio_pin_clear(CNTD_PIN);
             m_conn_handle = BLE_CONN_HANDLE_INVALID;
             break;
 

@@ -1,21 +1,25 @@
 #include <stdio.h>
 #include <math.h>
 
+#include "time.h"
 #include "nrf_delay.h"
 #include "sensors.h"
 #include "mpu9250.h"
 #include "error_event.h"
+#include "circular_queue.h"
 
-#define MARK_UP   0
-#define MARK_DOWN 1
+#define WINDOW_SIZE 64
+#define PEAK_SAMPLE_SIZE 5
 
+enum WAVE_STATE {
+    CLIMBING,
+    SLIDING
+};
+
+static struct queue window, peaks;
 static nrf_adc_value_t adc_buffer[ADC_BUFFER_SIZE];
 static volatile uint8_t isSampleCmplt = false;
 static uint8_t *uart_error;
-static uint8_t hrm_state = MARK_UP;
-static uint8_t tim_psd   = 0;
-static uint8_t tim_mkd   = 0;
-static uint8_t is_human  = 0;
 
 uint8_t hrm_read(uint16_t *hrm)
 {
@@ -78,6 +82,9 @@ uint8_t init_sensors(app_twi_t *twi_ins, uint8_t *ue)
 {
     uint8_t ret;
 
+    init_queue(&window, WINDOW_SIZE);
+    init_queue(&peaks, PEAK_SAMPLE_SIZE);
+
     uart_error = ue;
 
     nrf_delay_ms(1000);
@@ -90,51 +97,129 @@ uint8_t init_sensors(app_twi_t *twi_ins, uint8_t *ue)
     return 0;
 }
 
-static uint8_t is_wearing(
-        uint16_t amp,
-        uint8_t *state,
-        uint8_t *tp,
-        uint8_t *tm,
-        uint8_t *ih)
+//Low pass butterworth filter order=1 alpha1=0.01
+static uint16_t butterworth_lpf(uint16_t x)
 {
-    uint8_t ret, tim_dis;
+    static float v[2] = {0};
 
-    ret = 0;
+    v[0] = v[1];
+    v[1] = (3.046874709125380054e-2 * x) + (0.93906250581749239892 * v[0]);
 
-    switch (*state) {
-        case MARK_UP:
-            if (amp > 500) {
-                tim_dis = (*tp) - (*tm);
-                (*tm) = tim_dis + (*tm); // tim_mkd = time_psd;
-                (*state) = MARK_DOWN;
+    return (uint16_t)(v[0] + v[1]);
+}
 
-                /** if (!(*uart_error)) */
-                /**     printf("Marked tim_dis: %u\n\r", tim_dis); */
+static uint16_t slope_sum(struct queue *q, uint16_t x)
+{
+    static uint32_t last_sum = 0;
+    uint16_t ssf, garbage;
+    int16_t lost, gain;
 
-                if (tim_dis >= 7 && tim_dis < 14) {
-                    ret = 1; // absolutely human
-                    (*ih) = 1;
-                } else {
-                    (*ih) = 0;
+    garbage = enqueue(q, x);
+
+    lost = q->tail->val - garbage;
+    lost = (lost < 0 ? 0 : lost);
+
+    gain = q->head->val - q->head->next->val;
+    gain = (gain < 0 ? 0 : gain);
+
+    ssf = last_sum - lost + gain;
+    last_sum = ssf;
+
+    return ssf;
+}
+
+/* expected that a caller of this procedure will call enqueue(&peaks, x) */
+static uint8_t is_peak(uint16_t x, uint16_t last_peak)
+{
+    static uint16_t last_x = 0;
+    static uint32_t t_last_peak = 0;
+    static enum WAVE_STATE state = SLIDING;
+    uint8_t peak = 0;
+    int16_t diff_x = x - last_x;
+
+    switch (state) {
+        case CLIMBING:
+            if (diff_x <= 0) {
+                state = SLIDING;
+
+                if (x > last_peak ||
+                        last_peak - x <= 20 ||
+                        get_millis() - t_last_peak > 3000) {
+                    peak = 1;
+                    t_last_peak = get_millis();
+                    /** enqueue(&peaks, x); */
                 }
-            } else if (*ih) {
-                tim_dis = (*tp) - (*tm);
-
-                if (tim_dis >= 0 && tim_dis < 14)
-                    ret = 1;
-            } else {
-                (*ih) = 0;
             }
             break;
-        case MARK_DOWN:
-            if (amp < 500)
-                (*state) = MARK_UP;
 
-            ret = 2;
+        case SLIDING:
+            if (diff_x >= 0)
+                state = CLIMBING;
+            break;
+
+        default:
             break;
     }
 
-    return ret;
+    last_x = x;
+
+    return peak;
+}
+
+static uint16_t calculate_treshold(struct queue *q, uint16_t x)
+{
+    static float treshold = 0;
+
+    if (is_peak(x, q->head->val)) {
+        treshold *= PEAK_SAMPLE_SIZE;
+        treshold += (int16_t)(x - enqueue(q, x));
+        treshold /= PEAK_SAMPLE_SIZE;
+    }
+
+    return (uint16_t)((treshold/100) * 70);
+}
+
+static uint8_t calculate_bpm(uint16_t treshold, uint16_t x)
+{
+    static enum WAVE_STATE state = SLIDING;
+    static uint32_t t_fst_peak = 0;
+    static uint8_t count = 0, bpm = 0;
+
+    switch (state) {
+        case CLIMBING:
+            if (x < treshold) {
+                state = SLIDING;
+
+                if (count == 0) {
+                    t_fst_peak = get_millis();
+                } else if (count >= 1) {
+                    bpm = (uint8_t)(count /
+                            ((get_millis() - t_fst_peak) / (1000 * 60.0)));
+                    count = 0;
+                    break;
+                }
+                ++count;
+            }
+            break;
+
+        case SLIDING:
+            if (x > treshold)
+                state = CLIMBING;
+            break;
+
+        default:
+            break;
+    }
+
+    if (bpm && get_millis() - t_fst_peak > 3000)
+        bpm = 0;
+
+    return bpm;
+}
+
+static uint8_t is_wearing(uint8_t bpm)
+{
+    return (bpm >= 60 && bpm <= 100 ? 1 : 0);
 }
 
 static double raw_to_gforce(uint8_t range, int16_t val)
@@ -179,19 +264,17 @@ static double raw_to_angular_velocity(uint16_t range, int16_t val)
 
 void sensor_routine(void)
 {
-    uint16_t hrm;
+    uint8_t bpm;
+    uint16_t hrm, ssf, treshold;
     int16_t x, y, z;
     double xg, yg, zg, roll, pitch;
 
-    ++tim_psd;
-
     if (hrm_read(&hrm) == 0) {
-        switch (is_wearing(
-                    hrm,
-                    &hrm_state,
-                    &tim_psd,
-                    &tim_mkd,
-                    &is_human)) {
+        ssf = slope_sum(&window, butterworth_lpf(hrm));
+        treshold = calculate_treshold(&peaks, ssf);
+        bpm = calculate_bpm(treshold, ssf);
+
+        switch (is_wearing(bpm)) {
             case 1:
                 set_wearing_event(WEARING_YES);
                 /** if (!(*uart_error)) */

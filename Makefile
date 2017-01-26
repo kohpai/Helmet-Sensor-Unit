@@ -67,6 +67,8 @@ $(abspath src/sensors.c) \
 $(abspath src/bluetooth.c) \
 $(abspath src/helmet_sensor_unit_service.c) \
 $(abspath src/error_event.c) \
+$(abspath src/circular_queue.c) \
+$(abspath src/time.c) \
 $(abspath ../../../components/ble/common/ble_advdata.c) \
 $(abspath ../../../components/ble/ble_advertising/ble_advertising.c) \
 $(abspath ../../../components/ble/common/ble_conn_params.c) \
