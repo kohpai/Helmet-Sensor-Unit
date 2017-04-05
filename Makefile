@@ -60,6 +60,7 @@ $(abspath ../../../components/drivers_nrf/uart/nrf_drv_uart.c) \
 $(abspath ../../../components/drivers_nrf/nrf_soc_nosd/nrf_nvic.c) \
 $(abspath ../../../components/drivers_nrf/nrf_soc_nosd/nrf_soc.c) \
 $(abspath ../../../components/drivers_nrf/clock/nrf_drv_clock.c) \
+$(abspath ../../../components/drivers_nrf/gpiote/nrf_drv_gpiote.c) \
 $(abspath ../../bsp/bsp.c) \
 $(abspath src/main.c) \
 $(abspath src/mpu9250.c) \

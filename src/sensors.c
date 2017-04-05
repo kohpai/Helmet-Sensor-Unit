@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <math.h>
 
+#include "nrf_drv_gpiote.h"
 #include "time.h"
 #include "nrf_delay.h"
 #include "sensors.h"
@@ -10,6 +11,8 @@
 
 #define WINDOW_SIZE 64
 #define PEAK_SAMPLE_SIZE 5
+#define PIN_IN 2
+#define PIN_GND 3
 
 enum WAVE_STATE {
     CLIMBING,
@@ -18,8 +21,9 @@ enum WAVE_STATE {
 
 static struct queue window, peaks;
 static nrf_adc_value_t adc_buffer[ADC_BUFFER_SIZE];
-static volatile uint8_t isSampleCmplt = false;
+static volatile uint8_t is_sample_cmplt = false;
 static uint8_t *uart_error;
+static uint8_t is_on_obj = false;
 
 uint8_t hrm_read(uint16_t *hrm)
 {
@@ -32,9 +36,9 @@ uint8_t hrm_read(uint16_t *hrm)
 
     nrf_drv_adc_sample();
 
-    while (!isSampleCmplt);
+    while (!is_sample_cmplt);
 
-    isSampleCmplt = false;
+    is_sample_cmplt = false;
     (*hrm) = adc_buffer[0];
 
     return 0;
@@ -67,7 +71,7 @@ uint8_t mag_read(int16_t *x, int16_t *y, int16_t *z)
 void adc_event_handler(nrf_drv_adc_evt_t const * p_event)
 {
     if (p_event->type == NRF_DRV_ADC_EVT_DONE) {
-        isSampleCmplt = true;
+        is_sample_cmplt = true;
         uint32_t i;
         for (i = 0; i < p_event->data.done.size; i++) {
             /** if (!(*uart_error)) */
@@ -78,9 +82,57 @@ void adc_event_handler(nrf_drv_adc_evt_t const * p_event)
     }
 }
 
+void in_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
+{
+    if (nrf_gpio_pin_read(pin)) {
+        if (!(*uart_error))
+            printf("Release!!\n\r");
+
+        is_on_obj = false;
+    } else {
+        if (!(*uart_error))
+            printf("Press!!\n\r");
+
+        is_on_obj = true;
+    }
+    /* nrf_drv_gpiote_out_toggle(PIN_OUT); */
+}
+
+static uint8_t gpiote_init(void)
+{
+    ret_code_t err_code;
+
+    err_code = nrf_drv_gpiote_init();
+
+    if (err_code != NRF_SUCCESS)
+        return 1;
+
+    /* nrf_drv_gpiote_out_config_t out_config = GPIOTE_CONFIG_OUT_SIMPLE(false); */
+
+    /* err_code = nrf_drv_gpiote_out_init(PIN_OUT, &out_config); */
+    /* APP_ERROR_CHECK(err_code); */
+
+    nrf_drv_gpiote_in_config_t in_config = GPIOTE_CONFIG_IN_SENSE_TOGGLE(true);
+    in_config.pull = NRF_GPIO_PIN_PULLUP;
+
+    err_code = nrf_drv_gpiote_in_init(PIN_IN, &in_config, in_pin_handler);
+
+    if (err_code != NRF_SUCCESS)
+        return 2;
+
+    nrf_drv_gpiote_in_event_enable(PIN_IN, true);
+
+    return 0;
+}
+
 uint8_t init_sensors(app_twi_t *twi_ins, uint8_t *ue)
 {
     uint8_t ret;
+
+    nrf_gpio_cfg_output(PIN_GND);
+    nrf_gpio_pin_clear(PIN_GND);
+
+    gpiote_init();
 
     init_queue(&window, WINDOW_SIZE);
     init_queue(&peaks, PEAK_SAMPLE_SIZE);
@@ -192,7 +244,7 @@ static uint8_t calculate_bpm(uint16_t treshold, uint16_t x)
 
                 if (count == 0) {
                     t_fst_peak = get_millis();
-                } else if (count >= 1) {
+                } else {
                     bpm = (uint8_t)(count /
                             ((get_millis() - t_fst_peak) / (1000 * 60.0)));
                     count = 0;
@@ -217,9 +269,19 @@ static uint8_t calculate_bpm(uint16_t treshold, uint16_t x)
     return bpm;
 }
 
-static uint8_t is_wearing(uint8_t bpm)
+static uint8_t is_wearing(uint8_t obj, uint8_t bpm)
 {
-    return (bpm >= 60 && bpm <= 100 ? 1 : 0);
+    static uint8_t wearing = 0;
+
+    if (obj) {
+        if (bpm >= 60 && bpm <= 100) {
+            wearing = 1;
+        }
+    } else {
+        wearing = 0;
+    }
+
+    return wearing;
 }
 
 static double raw_to_gforce(uint8_t range, int16_t val)
@@ -274,7 +336,7 @@ void sensor_routine(void)
         treshold = calculate_treshold(&peaks, ssf);
         bpm = calculate_bpm(treshold, ssf);
 
-        switch (is_wearing(bpm)) {
+        switch (is_wearing(is_on_obj, bpm)) {
             case 1:
                 set_wearing_event(WEARING_YES);
                 /** if (!(*uart_error)) */
