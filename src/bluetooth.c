@@ -108,7 +108,7 @@ static void on_rw_authorize_request(ble_hcus_t *p_hcus, ble_evt_t *p_ble_evt)
         if (!(*uart_error))
             printf("on_rw_authorize_request: ACC read request\n");
 
-        if (acc_read(&x, &y, &z) == 0) {
+        if (read_acc(&x, &y, &z) == 0) {
             xyz_to_array(value, &x, &y, &z);
             set_acc_error(0);
         }
@@ -124,7 +124,7 @@ static void on_rw_authorize_request(ble_hcus_t *p_hcus, ble_evt_t *p_ble_evt)
         if (!(*uart_error))
             printf("on_rw_authorize_request: GYRO read request\n");
 
-        if (gyr_read(&x, &y, &z) == 0) {
+        if (read_gyro(&x, &y, &z) == 0) {
             xyz_to_array(value, &x, &y, &z);
             set_gyr_error(0);
         }
@@ -140,7 +140,7 @@ static void on_rw_authorize_request(ble_hcus_t *p_hcus, ble_evt_t *p_ble_evt)
         if (!(*uart_error))
             printf("on_rw_authorize_request: MAG read request\n");
 
-        if (mag_read(&x, &y, &z) == 0) {
+        if (read_mag(&x, &y, &z) == 0) {
             xyz_to_array(value, &x, &y, &z);
             set_mag_error(0);
         }
@@ -153,19 +153,18 @@ static void on_rw_authorize_request(ble_hcus_t *p_hcus, ble_evt_t *p_ble_evt)
         rw_authorize_reply_params.params.read.p_data = value;
     }
     else if (p_evt_read->handle == p_hcus->hrm_char_handle.value_handle) {
-        uint16_t hrm;
+        uint8_t hrm;
 
         if (!(*uart_error))
             printf("on_rw_authorize_request: HRM read request\n");
 
-        if (hrm_read(&hrm) == 0) {
-            value[0] = (uint8_t) (hrm >> 8);
-            value[1] = (uint8_t) hrm;
-            set_hrm_error(0);
-        }
-        else {
-            set_hrm_error(1);
-        }
+        hrm = get_hrm();
+
+        value[1] = hrm;
+        set_hrm_error(0);
+
+        // find some way to return error
+        /* set_hrm_error(1); */
 
         rw_authorize_reply_params.params.read.len = 2;
         rw_authorize_reply_params.params.read.offset = 0;

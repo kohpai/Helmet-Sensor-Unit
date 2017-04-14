@@ -24,12 +24,19 @@ static nrf_adc_value_t adc_buffer[ADC_BUFFER_SIZE];
 static volatile uint8_t is_sample_cmplt = false;
 static uint8_t *uart_error;
 static uint8_t is_on_obj = false;
+static uint8_t hrm = 0;
 
-uint8_t hrm_read(uint16_t *hrm)
+uint8_t get_hrm(void)
+{
+    return hrm;
+}
+
+/* Photoplethysmogram from Photoplethysmograph */
+static uint8_t ppg_read(uint16_t *ppg)
 {
     if (nrf_drv_adc_buffer_convert(adc_buffer, ADC_BUFFER_SIZE) !=
             NRF_SUCCESS) {
-        (*hrm) = 0;
+        (*ppg) = 0;
 
         return 1;
     }
@@ -39,12 +46,12 @@ uint8_t hrm_read(uint16_t *hrm)
     while (!is_sample_cmplt);
 
     is_sample_cmplt = false;
-    (*hrm) = adc_buffer[0];
+    (*ppg) = adc_buffer[0];
 
     return 0;
 }
 
-uint8_t acc_read(int16_t *x, int16_t *y, int16_t *z)
+uint8_t read_acc(int16_t *x, int16_t *y, int16_t *z)
 {
     if (!mpuGetAccel(x, y, z))
         return 1;
@@ -52,7 +59,7 @@ uint8_t acc_read(int16_t *x, int16_t *y, int16_t *z)
     return 0;
 }
 
-uint8_t gyr_read(int16_t *x, int16_t *y, int16_t *z)
+uint8_t read_gyro(int16_t *x, int16_t *y, int16_t *z)
 {
     if (!mpuGetGyro(x, y, z))
         return 1;
@@ -60,7 +67,7 @@ uint8_t gyr_read(int16_t *x, int16_t *y, int16_t *z)
     return 0;
 }
 
-uint8_t mag_read(int16_t *x, int16_t *y, int16_t *z)
+uint8_t read_mag(int16_t *x, int16_t *y, int16_t *z)
 {
     if (!mpuGetMagnet(x, y, z))
         return 1;
@@ -85,13 +92,13 @@ void adc_event_handler(nrf_drv_adc_evt_t const * p_event)
 void in_pin_handler(nrf_drv_gpiote_pin_t pin, nrf_gpiote_polarity_t action)
 {
     if (nrf_gpio_pin_read(pin)) {
-        if (!(*uart_error))
-            printf("Release!!\n\r");
+        /* if (!(*uart_error)) */
+        /*     printf("Release!!\n\r"); */
 
         is_on_obj = false;
     } else {
-        if (!(*uart_error))
-            printf("Press!!\n\r");
+        /* if (!(*uart_error)) */
+        /*     printf("Press!!\n\r"); */
 
         is_on_obj = true;
     }
@@ -263,8 +270,10 @@ static uint8_t calculate_bpm(uint16_t treshold, uint16_t x)
             break;
     }
 
-    if (bpm && get_millis() - t_fst_peak > 3000)
+    if (get_millis() - t_fst_peak > 3000)
         bpm = 0;
+    else
+        hrm = bpm;
 
     return bpm;
 }
@@ -327,12 +336,12 @@ static double raw_to_angular_velocity(uint16_t range, int16_t val)
 void sensor_routine(void)
 {
     uint8_t bpm;
-    uint16_t hrm, ssf, treshold;
+    uint16_t ppg, ssf, treshold;
     int16_t x, y, z;
     double xg, yg, zg, roll, pitch;
 
-    if (hrm_read(&hrm) == 0) {
-        ssf = slope_sum(&window, butterworth_lpf(hrm));
+    if (ppg_read(&ppg) == 0) {
+        ssf = slope_sum(&window, butterworth_lpf(ppg));
         treshold = calculate_treshold(&peaks, ssf);
         bpm = calculate_bpm(treshold, ssf);
 
@@ -362,7 +371,7 @@ void sensor_routine(void)
     yg = raw_to_gforce(16, y);
     zg = raw_to_gforce(16, z);
 
-    roll    = (atan2(yg, zg) * 180.0) / M_PI;
+    roll    = (atan2(-yg, zg) * 180.0) / M_PI;
     pitch   = (atan2(xg, sqrt((yg * yg) + (zg * zg))) * 180.0) / M_PI;
 
     if (xg > ACC_THR || xg < -ACC_THR ||
